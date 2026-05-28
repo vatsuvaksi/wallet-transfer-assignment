@@ -142,8 +142,14 @@ func TestTransfer_IdempotencyMismatch_409(t *testing.T) {
 		DB:          pool,
 	})
 
-	from, _ := walletRepo.Create(ctx, 500)
-	to, _ := walletRepo.Create(ctx, 0)
+	from, err := walletRepo.Create(ctx, 500)
+	if err != nil {
+		t.Fatalf("create from-wallet: %v", err)
+	}
+	to, err := walletRepo.Create(ctx, 0)
+	if err != nil {
+		t.Fatalf("create to-wallet: %v", err)
+	}
 
 	req1 := transfers.CreateRequest{IdempotencyKey: "idem-2", FromWalletID: from.ID, ToWalletID: to.ID, Amount: 100}
 	req2 := transfers.CreateRequest{IdempotencyKey: "idem-2", FromWalletID: from.ID, ToWalletID: to.ID, Amount: 101}
