@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -109,16 +110,30 @@ func (h *handler) createTransfer(w http.ResponseWriter, r *http.Request) {
 		Amount:         req.Amount,
 	})
 
-	if body == nil {
-		if err != nil {
-			httputil.WriteError(w, status, err.Error())
-			return
-		}
-		httputil.WriteError(w, status, "request failed")
+	if body != nil {
+		_ = httputil.WriteJSONBytes(w, status, body)
 		return
 	}
 
-	_ = httputil.WriteJSONBytes(w, status, body)
+	httputil.WriteError(w, status, transferErrMessage(r, err))
+}
+
+func transferErrMessage(r *http.Request, err error) string {
+	switch {
+	case errors.Is(err, transfers.ErrInvalidRequest):
+		return "invalid request"
+	case errors.Is(err, transfers.ErrWalletNotFound):
+		return "wallet not found"
+	case errors.Is(err, transfers.ErrInsufficientFunds):
+		return "insufficient funds"
+	case errors.Is(err, transfers.ErrIdempotencyConflict):
+		return "idempotency key reused with different payload"
+	default:
+		// Log the full error server-side; never surface it externally.
+		fmt.Printf("unexpected transfer error (requestId=%s): %v",
+			r.Header.Get("X-Request-Id"), err)
+		return "internal error"
+	}
 }
 
 func decodeJSON(r io.Reader, v any) error {

@@ -88,20 +88,8 @@ func (s *service) Create(ctx context.Context, req CreateRequest) (int, json.RawM
 		return http.StatusInternalServerError, nil, fmt.Errorf("idempotency record not finalized")
 	}
 
-	transferID := uuid.NewString()
-	transfer := Transfer{
-		ID:             transferID,
-		IdempotencyKey: req.IdempotencyKey,
-		FromWalletID:   req.FromWalletID,
-		ToWalletID:     req.ToWalletID,
-		Amount:         req.Amount,
-		State:          StatePending,
-	}
-
-	if err := s.transfers.InsertTx(ctx, tx, transfer); err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("insert transfer: %w", err)
-	}
-
+	// Lock wallets BEFORE inserting the transfer row so FK violations can't
+	// occur and we can return a clean 404 when a wallet doesn't exist.
 	firstID, secondID := lockOrder(req.FromWalletID, req.ToWalletID)
 	firstOK, err := s.wallets.LockTx(ctx, tx, firstID)
 	if err != nil {
@@ -112,7 +100,6 @@ func (s *service) Create(ctx context.Context, req CreateRequest) (int, json.RawM
 		return http.StatusInternalServerError, nil, fmt.Errorf("lock wallet: %w", err)
 	}
 	if !firstOK || !secondOK {
-		_ = s.transfers.UpdateStateTx(ctx, tx, transferID, StateFailed, "WALLET_NOT_FOUND")
 		body := mustJSON(map[string]any{"error": "wallet not found"})
 		_ = s.idempotency.SetResponse(ctx, adaptedTx, key, requestHash, http.StatusNotFound, body)
 		if err := tx.Commit(ctx); err != nil {
@@ -122,6 +109,20 @@ func (s *service) Create(ctx context.Context, req CreateRequest) (int, json.RawM
 			c.CacheFinalizedResponse(key, requestHash, http.StatusNotFound, body)
 		}
 		return http.StatusNotFound, body, ErrWalletNotFound
+	}
+
+	// Both wallets confirmed present — now it's safe to insert the transfer row.
+	transferID := uuid.NewString()
+	transfer := Transfer{
+		ID:             transferID,
+		IdempotencyKey: req.IdempotencyKey,
+		FromWalletID:   req.FromWalletID,
+		ToWalletID:     req.ToWalletID,
+		Amount:         req.Amount,
+		State:          StatePending,
+	}
+	if err := s.transfers.InsertTx(ctx, tx, transfer); err != nil {
+		return http.StatusInternalServerError, nil, fmt.Errorf("insert transfer: %w", err)
 	}
 
 	debited, err := s.wallets.DebitIfSufficientTx(ctx, tx, req.FromWalletID, req.Amount)
