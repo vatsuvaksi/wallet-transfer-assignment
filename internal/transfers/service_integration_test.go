@@ -385,7 +385,7 @@ func newTestDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	}
 
 	_, thisFile, _, _ := runtime.Caller(0)
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	migrationPath := filepath.Join(repoRoot, "db", "migrations", "001_init.up.sql")
 	mig, err := os.ReadFile(migrationPath)
 	if err != nil {
